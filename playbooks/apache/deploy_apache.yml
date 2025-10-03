@@ -37,3 +37,16 @@
         state: enabled
         immediate: true
       ignore_errors: true
+
+
+    - name: Verificar HTTP 200 na porta 80 (localhost)
+      ansible.builtin.uri:
+        url: "http://{{ ansible_default_ipv4.address }}"
+        status_code: 200
+        return_content: false
+        timeout: 5
+      register: http_check
+      retries: 10
+      delay: 3
+      until: http_check.status == 200
+      changed_when: false
