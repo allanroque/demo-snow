@@ -1,0 +1,31 @@
+---
+- name: Quebrar httpd.conf e provocar falha no restart
+  hosts: all
+  become: true
+  tasks:
+    - name: Inserir diretiva inválida no topo do httpd.conf
+      ansible.builtin.lineinfile:
+        path: /etc/httpd/conf/httpd.conf
+        insertafter: BOF
+        line: 'InvalidDirectiveBreak On'   # diretiva inexistente -> apachectl -t falha
+        state: present
+
+    - name: Validar configuração (deve falhar)
+      ansible.builtin.command: apachectl -t
+      register: apache_validate
+      changed_when: false
+      failed_when: false
+
+    - name: Tentar restart (esperando falha)
+      ansible.builtin.service:
+        name: httpd
+        state: restarted
+      register: restart_result
+      failed_when: false
+      ignore_errors: true
+
+    - name: Resumo
+      ansible.builtin.debug:
+        msg:
+          - "apachectl -t -> rc={{ apache_validate.rc }} stderr={{ apache_validate.stderr | default('') }}"
+          - "restart httpd -> rc={{ restart_result.rc | default('n/a') }} failed={{ restart_result.failed | default(false) }}"
