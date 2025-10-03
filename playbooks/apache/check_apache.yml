@@ -117,7 +117,7 @@
         apache_report_text: |
           ================================================
           APACHE HTTPD - RELATÓRIO DE DIAGNÓSTICO
-          Gerado em: {{ ansible_date_time.iso8601 }}
+          Gerado via Ansible em: {{ ansible_date_time.iso8601 }}
           Host: {{ ansible_hostname }} ({{ ansible_default_ipv4.address | default('N/D') }})
           SO: {{ ansible_distribution }} {{ ansible_distribution_version }}
           ================================================
@@ -162,10 +162,13 @@
       ansible.builtin.debug:
         msg: "{{ apache_report_text | trim | split('\n') }}"
 
+#    - name: Exibir relatório (legível)
+#      ansible.builtin.debug:
+#        msg: "{{ apache_report_text
+#                | regex_replace('\\r\\n|\\r', '\n')
+#                | trim
+#                | split('\n') }}"
 
-    - name: Exibir relatório (legível)
-      ansible.builtin.debug:
-        msg: "{{ apache_report_text | trim | splitlines }}"
 
     - name: Exportar relatório e artefatos como variáveis globais
       ansible.builtin.set_stats:
