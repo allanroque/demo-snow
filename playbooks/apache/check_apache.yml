@@ -1,0 +1,183 @@
+---
+- name: Apache HTTPD - Coleta de diagnóstico
+  hosts: APACHE
+  become: true
+  gather_facts: true
+
+  vars:
+    # Altere se seus logs estiverem em caminho diferente
+    apache_access_log: /var/log/httpd/access_log
+    apache_error_log: /var/log/httpd/error_log
+    # URLs a testar; por padrão testa localhost
+    test_urls: ["http://{{ ansible_default_ipv4.address }}/"]
+    # Quantidade de linhas de log a coletar
+    log_tail_lines: 100
+
+  tasks:
+    - name: Coletar status de serviços (systemd)
+      ansible.builtin.service_facts:
+
+    - name: Validar configuração (apachectl -t)
+      ansible.builtin.command: apachectl -t
+      register: apache_validate
+      changed_when: false
+      failed_when: false
+
+    - name: Versão do Apache (httpd -v)
+      ansible.builtin.command: httpd -v
+      register: apache_version
+      changed_when: false
+      failed_when: false
+
+    - name: Módulos carregados (httpd -M)
+      ansible.builtin.command: httpd -M
+      register: apache_modules
+      changed_when: false
+      failed_when: false
+
+    - name: VirtualHosts e mapeamentos (httpd -S)
+      ansible.builtin.command: httpd -S
+      register: apache_vhosts
+      changed_when: false
+      failed_when: false
+
+    - name: Portas em uso (ss -ltnp)
+      ansible.builtin.command: ss -ltnp
+      register: ss_output
+      changed_when: false
+      failed_when: false
+
+    - name: Testar URLs (GET -> 200)
+      ansible.builtin.uri:
+        url: "{{ item }}"
+        method: GET
+        status_code: 200
+        timeout: 5
+        return_content: false
+      loop: "{{ test_urls }}"
+      loop_control:
+        label: "{{ item }}"
+      register: url_tests
+      failed_when: false
+      changed_when: false
+
+    - name: Testar HEAD principal (headers)
+      ansible.builtin.uri:
+        url: "{{ test_urls[0] | default('http://127.0.0.1/') }}"
+        method: HEAD
+        status_code: 200
+        timeout: 5
+      register: headers_test
+      failed_when: false
+      changed_when: false
+
+    - name: Verificar existência do access_log
+      ansible.builtin.stat:
+        path: "{{ apache_access_log }}"
+      register: stat_access
+
+    - name: Verificar existência do error_log
+      ansible.builtin.stat:
+        path: "{{ apache_error_log }}"
+      register: stat_error
+
+    - name: Últimas linhas do access_log
+      ansible.builtin.shell: "tail -n {{ log_tail_lines }} {{ apache_access_log }}"
+      when: stat_access.stat.exists
+      register: access_logs
+      changed_when: false
+      failed_when: false
+
+    - name: Últimas linhas do error_log
+      ansible.builtin.shell: "tail -n {{ log_tail_lines }} {{ apache_error_log }}"
+      when: stat_error.stat.exists
+      register: error_logs
+      changed_when: false
+      failed_when: false
+
+    - name: Últimas mensagens do journald para httpd
+      ansible.builtin.command: journalctl -u httpd -n {{ log_tail_lines }} --no-pager
+      register: journal_httpd
+      changed_when: false
+      failed_when: false
+
+    - name: Derivar status do serviço httpd
+      ansible.builtin.set_fact:
+        httpd_service_facts: "{{ ansible_facts.services['httpd.service'] | default({}) }}"
+        httpd_active_state: "{{ (ansible_facts.services['httpd.service'] | default({})).ActiveState | default('unknown') }}"
+        port_80_open: "{{ (ss_output.stdout | default('')) is search(':80 ') }}"
+        urls_ok: >-
+          {{ (url_tests.results | default([]))
+             | selectattr('status', 'defined')
+             | selectattr('status', 'equalto', 200)
+             | list | length }}
+
+    - name: Montar relatório em texto
+      ansible.builtin.set_fact:
+        apache_report_text: |
+          ================================================
+          APACHE HTTPD - RELATÓRIO DE DIAGNÓSTICO
+          Gerado em: {{ ansible_date_time.iso8601 }}
+          Host: {{ ansible_hostname }} ({{ ansible_default_ipv4.address | default('N/D') }})
+          SO: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          ================================================
+
+          [SERVIÇO]
+          Status (systemd): {{ httpd_active_state }}
+          Porta 80 aberta: {{ 'Sim' if port_80_open else 'Não' }}
+
+          [CONFIGURAÇÃO]
+          apachectl -t rc={{ apache_validate.rc | default('N/D') }}
+          stderr:
+          {{ apache_validate.stderr | default('') | trim }}
+
+          [VERSÃO]
+          {{ apache_version.stdout | default('N/D') | trim }}
+
+          [MÓDULOS CARREGADOS]
+          {{ apache_modules.stdout | default('N/D') | trim }}
+
+          [VIRTUALHOSTS]
+          {{ apache_vhosts.stdout | default('N/D') | trim }}
+
+          [TESTES HTTP]
+          URLs testadas: {{ (test_urls | length) if test_urls is defined else 0 }}
+          URLs com HTTP 200: {{ urls_ok }}
+          HEAD em {{ test_urls[0] | default('http://127.0.0.1/') }} -> rc={{ headers_test.status | default('N/D') }}
+
+          [PORTAS]
+          ss -ltnp (resumo):
+          {{ ss_output.stdout | default('N/D') | trim }}
+
+          [LOGS - ACCESS_LOG ({{ apache_access_log }})]
+          {% if stat_access.stat.exists %}{{ access_logs.stdout | default('sem dados') | trim }}{% else %}Arquivo não encontrado{% endif %}
+
+          [LOGS - ERROR_LOG ({{ apache_error_log }})]
+          {% if stat_error.stat.exists %}{{ error_logs.stdout | default('sem dados') | trim }}{% else %}Arquivo não encontrado{% endif %}
+
+          [JOURNALD - httpd]
+          {{ journal_httpd.stdout | default('N/D') | trim }}
+
+    - name: Exibir relatório (legível)
+      ansible.builtin.debug:
+        msg: "{{ apache_report_text | trim | split('\n') }}"
+
+
+    - name: Exibir relatório (legível)
+      ansible.builtin.debug:
+        msg: "{{ apache_report_text | trim | splitlines }}"
+
+    - name: Exportar relatório e artefatos como variáveis globais
+      ansible.builtin.set_stats:
+        data:
+          apache_report_text: "{{ apache_report_text }}"
+          apache_validate: "{{ apache_validate }}"
+          apache_version: "{{ apache_version }}"
+          apache_modules: "{{ apache_modules }}"
+          apache_vhosts: "{{ apache_vhosts }}"
+          url_tests: "{{ url_tests }}"
+          headers_test: "{{ headers_test }}"
+          ss_output: "{{ ss_output }}"
+          access_logs: "{{ access_logs if stat_access.stat.exists else {} }}"
+          error_logs: "{{ error_logs if stat_error.stat.exists else {} }}"
+          journal_httpd: "{{ journal_httpd }}"
