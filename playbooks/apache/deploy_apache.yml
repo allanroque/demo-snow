@@ -37,7 +37,7 @@
         state: enabled
         immediate: true
       ignore_errors: true
-
+      #when: ansible_facts.services["firewalld.service"] is defined
 
     - name: Verificar HTTP 200 na porta 80 (localhost)
       ansible.builtin.uri:
