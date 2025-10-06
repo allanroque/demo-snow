@@ -11,7 +11,7 @@
     # URLs a testar; por padrão testa localhost
     test_urls: ["http://{{ ansible_default_ipv4.address }}/"]
     # Quantidade de linhas de log a coletar
-    log_tail_lines: 100
+    log_tail_lines: 10
 
   tasks:
     - name: Coletar status de serviços (systemd)

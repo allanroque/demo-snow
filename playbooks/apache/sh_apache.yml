@@ -1,0 +1,39 @@
+---
+- name: Self-Healing Apache (httpd)
+  hosts: APACHE
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Coletar status de serviços (systemd)
+      ansible.builtin.service_facts:
+
+    - name: Verificar se o serviço httpd está no ar
+      ansible.builtin.debug:
+        msg: "Serviço httpd está rodando normalmente"
+      when: ansible_facts.services['httpd.service'].state == "running"
+
+    - name: Reiniciar serviço httpd se não estiver rodando
+      ansible.builtin.service:
+        name: httpd
+        state: restarted
+      when: ansible_facts.services['httpd.service'].state != "running"
+      register: restart_result
+      ignore_errors: true
+
+    - name: Montar relatório em texto
+      ansible.builtin.set_fact:
+        apache_report_text: |
+          Self-Healing Report:
+          Serviço: httpd
+          Restart executado: {{ restart_result is defined }}
+          Status após restart: {{ ansible_facts.services['httpd.service'].state if 'httpd.service' in ansible_facts.services else 'não encontrado' }}
+
+    - name: Exibir relatório (legível)
+      ansible.builtin.debug:
+        msg: "{{ apache_report_text | trim | split('\n') }}"
+
+    - name: Exportar relatório e artefatos como variáveis globais
+      ansible.builtin.set_stats:
+        data:
+          apache_report_text: "{{ apache_report_text }}"
