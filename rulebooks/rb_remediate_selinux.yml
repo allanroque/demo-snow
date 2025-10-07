@@ -1,0 +1,39 @@
+---
+- name: Rulebook for SELinux Alerts from Prometheus
+  hosts: localhost
+
+  sources:
+    - ansible.eda.alertmanager:
+        host: 0.0.0.0
+        port: 5050
+        data_alerts_path: alerts
+        data_host_path: labels.instance
+        data_path_separator: .
+        skip_original_data: true
+
+  rules:
+    # -------------------------------------------
+    # Alerta: SELinux foi desabilitado (status: firing)
+    # Aciona um job de baseline
+    # -------------------------------------------
+    - name: SELinux Disabled - Firing
+      condition: event.alert.labels.alertname == "SELinuxDisabled" and event.alert.status == "firing"
+      action:
+        run_job_template:
+          name: "CONFIG - SELinux"
+          organization: ITOPS
+          job_args:
+            limit: "{{ event.meta.hosts }}"   # Aplica apenas ao host do alerta
+            extra_vars:
+              alerta: "{{ event.alert.labels.alertname }}"
+              hostname: "{{ event.alert.labels.instance }}"
+
+    # -------------------------------------------
+    # Alerta: SELinux foi reabilitado (status: resolved)
+    # Apenas faz log (debug)
+    # -------------------------------------------
+    - name: SELinux Disabled - Resolved
+      condition: event.alert.labels.alertname == "SELinuxDisabled" and event.alert.status == "resolved"
+      action:
+        debug:
+          msg: "SELinux re-enabled or alert resolved on: {{ event.meta.hosts }}"

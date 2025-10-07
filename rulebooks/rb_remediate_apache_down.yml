@@ -1,0 +1,38 @@
+---
+- name: Rulebook for Apache Down Alerts from Prometheus
+  hosts: localhost
+
+  sources:
+    - ansible.eda.alertmanager:
+        host: 0.0.0.0
+        port: 5050
+        data_alerts_path: alerts
+        data_host_path: labels.instance
+        data_path_separator: .
+        skip_original_data: true
+
+  rules:
+    # -------------------------------------------
+    # Alerta: Apache está fora do ar (status: firing)
+    # Aciona um Job Template para reiniciar o serviço.
+    # -------------------------------------------
+    - name: Remediate Apache Down - Firing
+      condition: event.alert.labels.alertname == "ApacheDown" and event.alert.status == "firing"
+      action:
+        run_job_template:
+          # O nome do seu Job Template no AAP/AWX
+          name: "REMEDIATION - Restart Apache"
+          organization: "ITOPS"
+          job_args:
+            # Garante que o Job Template rode apenas no host do alerta
+            limit: "{{ event.meta.hosts }}"
+
+    # -------------------------------------------
+    # Alerta: Apache voltou (status: resolved)
+    # Apenas registra que o problema foi resolvido.
+    # -------------------------------------------
+    - name: Log Apache Down - Resolved
+      condition: event.alert.labels.alertname == "ApacheDown" and event.alert.status == "resolved"
+      action:
+        debug:
+          msg: "Apache service on {{ event.alert.labels.instance }} is back online. Alert resolved."

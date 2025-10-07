@@ -1,0 +1,36 @@
+---
+- name: Rulebook for Filesystem Usage Alerts from Prometheus
+  hosts: localhost
+
+  sources:
+    - ansible.eda.alertmanager:
+        host: 0.0.0.0
+        port: 5050
+        data_alerts_path: alerts
+        data_host_path: labels.instance
+        data_path_separator: .
+        skip_original_data: true
+
+  rules:
+    # -------------------------------------------
+    # Alerta: Espaço em disco crítico (status: firing)
+    # Aciona automação para liberar espaço
+    # -------------------------------------------
+    - name: High Filesystem Usage - Firing
+      condition: event.alert.labels.alertname == "HighFilesystemUsage" and event.alert.status == "firing"
+      action:
+        run_workflow_template:
+          name: "SH - WF - Disk Space"
+          organization: ITOPS
+          job_args:
+            limit: "{{ event.meta.hosts }}"
+
+    # -------------------------------------------
+    # Alerta de disco resolvido (status: resolved)
+    # Apenas registra resolução
+    # -------------------------------------------
+    - name: High Filesystem Usage - Resolved
+      condition: event.alert.labels.alertname == "HighFilesystemUsage" and event.alert.status == "resolved"
+      action:
+        debug:
+          msg: "Disk space alert resolved on: {{ event.meta.hosts }}"
